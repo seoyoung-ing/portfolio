@@ -85,12 +85,7 @@
   .toggle button[aria-pressed="true"]{background:var(--text);color:var(--bg)}
 
   /* ================= 아이덴티티 ================= */
-  .identity{display:grid;grid-template-columns:104px 1fr;gap:32px;padding:56px 0 40px}
-  .portrait{
-    width:104px;height:104px;border-radius:3px;background:var(--surface-2);
-    border:1px solid var(--line);display:grid;place-items:center;
-    font-size:29px;font-weight:700;letter-spacing:-0.03em;color:var(--text-2)
-  }
+  .identity{padding:56px 0 40px}
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--text-3);text-transform:uppercase}
   .name{
     font-weight:800;font-size:46px;line-height:1.12;
@@ -292,7 +287,6 @@
 <div id="list">
   <div class="wrap">
     <header class="identity">
-      <div class="portrait" id="p-initial"></div>
       <div>
         <div class="eyebrow" id="p-eyebrow"></div>
         <h1 class="name" id="p-name"></h1>
@@ -401,7 +395,6 @@ const patStyle = (p, t) => PAT[p](t === 'd' ? 'var(--pattern-on-d)' : 'var(--pat
 
 const PROFILE = {
   mark:       '기술의 가장 인간적인 형태를 만드는 PM, 최서영입니다',   // 좌측 상단 작은 표기
-  initial:    '徐',                       // 원형 대신 사각 타일에 들어갈 한 글자
   eyebrow:    'Product Manager · Seoul', // 이름 위 한 줄
   name:       '최서영',
   spec:       ['3년차', 'NH투자증권 나무증권', '프로젝트 6', '2024 – 현재'],
@@ -611,7 +604,6 @@ const $ = s => document.querySelector(s);
 
 document.title = PROFILE.name + ' · 포트폴리오';
 $('#p-mark').textContent       = PROFILE.mark;
-$('#p-initial').textContent    = PROFILE.initial;
 $('#p-eyebrow').textContent    = PROFILE.eyebrow;
 $('#p-name').textContent       = PROFILE.name;
 $('#p-spec').innerHTML         = PROFILE.spec.map(v => `<span>${v}</span>`).join('');
