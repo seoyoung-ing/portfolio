@@ -592,7 +592,7 @@ let current = null;
 
 function openDetail(id){
   const p = DATA.find(d => d.id === id);
-  if(!p) return;
+  if(!p){ console.warn('해당 프로젝트를 찾지 못했습니다:', id); return; }
   current = p;
 
   $('#d-kicker').textContent = 'PROJECT · ' + p.year;
@@ -605,7 +605,7 @@ function openDetail(id){
   const sc = $('#d-scope');
   sc.innerHTML = p.scope ? `<b>담당 범위</b>${p.scope}` : '';
   sc.style.display = p.scope ? '' : 'none';
-  $('#d-tags').innerHTML = p.tags.map(t => `<span class="tag">${t}</span>`).join('');
+  $('#d-tags').innerHTML = (p.tags || []).map(t => `<span class="tag">${t}</span>`).join('');
 
   const hero = $('#d-hero');
   hero.setAttribute('style', toneVars(p.tone));
@@ -622,7 +622,8 @@ function openDetail(id){
     $('#d-herotext').innerHTML = (p.thumbTitle || '').replace(/\n/g,'<br>');
   }
 
-  $('#d-steps').innerHTML = p.chapters.map((c,i) => `
+  const chapters = p.chapters || [];
+  $('#d-steps').innerHTML = chapters.map((c,i) => `
     <button class="step" data-jump="${i}">
       <span class="line"><i></i></span>
       <span class="n">${c.n}</span>
@@ -651,7 +652,7 @@ function openDetail(id){
     return html;
   }
 
-  $('#d-chapters').innerHTML = p.chapters.map((c,i) => `
+  $('#d-chapters').innerHTML = chapters.map((c,i) => `
     <section class="chapter" id="ch-${i}">
       <div class="kicker">${c.n} — ${c.label}</div>
       ${c.h ? `<h4>${c.h}</h4>` : ''}
@@ -681,7 +682,7 @@ function updateSteps(){
   if(!current) return;
   const steps = [...document.querySelectorAll('#d-steps .step')];
   let active = 0;
-  current.chapters.forEach((c,i) => {
+  (current.chapters || []).forEach((c,i) => {
     const el = document.getElementById('ch-' + i);
     if(el && el.getBoundingClientRect().top < window.innerHeight * 0.5) active = i;
   });
