@@ -215,7 +215,7 @@ async function parsePage(page, pageBlocks, order) {
   const titleProp = Object.values(props).find(x => x && x.type === 'title');
 
   const project = {
-    id: page.id.replace(/-/g, '').slice(0, 12),
+    id: page.id.replace(/-/g, ''),
     title: titleProp ? plain(titleProp.title).trim() : '',
     period: pick('기간', 'Period'),
     role: pick('역할', 'Role'),
@@ -472,6 +472,16 @@ function splitTitle(title) {
       console.error('  변환 실패:', e.message);
     }
   }
+
+  /* ID가 겹치지 않는지 최종 확인 — 겹치면 순번을 붙인다 */
+  const seen = new Set();
+  projects.forEach((p, i) => {
+    if (!p.id || seen.has(p.id)) {
+      p.id = (p.id || 'project') + '-' + i;
+      console.warn(`  ID가 겹쳐 순번을 붙였습니다: ${p.title}`);
+    }
+    seen.add(p.id);
+  });
 
   const out = {
     generatedAt: new Date().toISOString(),
