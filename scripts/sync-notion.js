@@ -210,9 +210,13 @@ async function parsePage(page, pageBlocks, order) {
     return '';
   };
 
+  /* 제목은 속성 이름이 아니라 타입으로 찾는다.
+     노션 DB에는 title 타입 속성이 반드시 하나 있고 이름은 자유롭게 바뀐다. */
+  const titleProp = Object.values(props).find(x => x && x.type === 'title');
+
   const project = {
     id: page.id.replace(/-/g, '').slice(0, 12),
-    title: pick('제목', '이름', 'Name', 'Title'),
+    title: titleProp ? plain(titleProp.title).trim() : '',
     period: pick('기간', 'Period'),
     role: pick('역할', 'Role'),
     team: pick('협업', 'Team'),
@@ -456,7 +460,10 @@ function splitTitle(title) {
     try {
       const blocks = await blocksOf(row.id);
       const project = await parsePage(row, blocks, i);
-      if (!project.title) { console.warn('  제목이 없어 건너뜁니다.'); continue; }
+      if (!project.title) {
+        project.title = '(제목 없음)';
+        console.warn('  제목을 찾지 못했습니다. 노션에서 페이지 이름을 채워 주세요.');
+      }
       if (!project.chapters.length) console.warn('  본문 단계를 찾지 못했습니다. 제목 규칙을 확인하세요.');
       else if (project._empty) console.warn('  단계는 찾았지만 본문 내용이 비어 있습니다. 노션 페이지가 템플릿 상태인지 확인하세요.');
       delete project._empty;
