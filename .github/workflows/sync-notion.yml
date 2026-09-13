@@ -20,7 +20,7 @@ jobs:
       - name: Node 설치
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: 노션 읽어서 data.json 만들기
         env:
@@ -32,10 +32,25 @@ jobs:
         run: |
           git config user.name  "notion-sync"
           git config user.email "actions@github.com"
-          git add data.json images
+
+          # 이미지가 하나도 없을 수 있으므로 폴더를 미리 만들어 둔다
+          mkdir -p images
+
+          git add -A data.json images
+
           if git diff --staged --quiet; then
             echo "바뀐 내용이 없습니다."
-          else
-            git commit -m "노션 내용 동기화 $(date +'%Y-%m-%d %H:%M')"
-            git push
+            exit 0
           fi
+
+          git commit -m "노션 내용 동기화 $(date +'%Y-%m-%d %H:%M')"
+
+          if ! git push; then
+            echo ""
+            echo "저장소에 쓰지 못했습니다."
+            echo "Settings → Actions → General → Workflow permissions 에서"
+            echo "'Read and write permissions' 를 선택하고 저장한 뒤 다시 실행해 주세요."
+            exit 1
+          fi
+
+          echo "저장을 마쳤습니다."
