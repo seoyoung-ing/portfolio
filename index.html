@@ -523,7 +523,7 @@ const thumbHTML = (p, small) => `
 function renderGallery(){
   $('#count-project').textContent = projects.length + ' PROJECTS';
   $('#grid-project').innerHTML = projects.map(p => `
-    <button class="card" data-id="${p.id}">
+    <button class="card" data-i="${DATA.indexOf(p)}">
       ${thumbHTML(p, false)}
       <h3>${p.title}</h3>
       <div class="meta">${p.metric || ''}<br><em>${[p.badge, p.year].filter(Boolean).join(' · ')}</em></div>
@@ -590,9 +590,11 @@ document.querySelectorAll('.tab').forEach(t => {
 const detail = $('#detail');
 let current = null;
 
-function openDetail(id){
-  const p = DATA.find(d => d.id === id);
-  if(!p){ console.warn('해당 프로젝트를 찾지 못했습니다:', id); return; }
+function openDetail(key){
+  /* 순번으로 찾는다. 예전 방식(id)으로 들어와도 동작하도록 함께 처리 */
+  let p = (typeof key === 'number' || /^\d+$/.test(key)) ? DATA[Number(key)] : null;
+  if(!p) p = DATA.find(d => d.id === key);
+  if(!p){ console.warn('해당 프로젝트를 찾지 못했습니다:', key); return; }
   current = p;
 
   $('#d-kicker').textContent = 'PROJECT · ' + p.year;
@@ -659,8 +661,8 @@ function openDetail(id){
       ${renderBlocks(c.blocks)}
     </section>`).join('');
 
-  $('#d-more').innerHTML = DATA.filter(d => d.id !== p.id).slice(0,3).map(o => `
-    <button class="card" data-id="${o.id}">
+  $('#d-more').innerHTML = DATA.filter(d => d !== p).slice(0,3).map(o => `
+    <button class="card" data-i="${DATA.indexOf(o)}">
       ${thumbHTML(o, true)}
       <h3>${o.title}</h3>
       <div class="meta"><em>${o.metric}</em></div>
@@ -700,8 +702,8 @@ document.addEventListener('click', e => {
     document.getElementById('ch-' + jump.dataset.jump)?.scrollIntoView({behavior:'smooth', block:'start'});
     return;
   }
-  const card = e.target.closest('[data-id]');
-  if(card) openDetail(card.dataset.id);
+  const card = e.target.closest('[data-i],[data-id]');
+  if(card) openDetail(card.dataset.i !== undefined ? card.dataset.i : card.dataset.id);
 });
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && current) closeDetail(); });
 </script>
