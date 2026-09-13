@@ -539,6 +539,7 @@ fetch('data.json?' + Date.now())
     DATA.length = 0;
     DATA.push(...projects);
     renderGallery();
+    syncWithHash(true);
   })
   .catch(err => {
     console.error('data.json 을 읽지 못했습니다:', err);
@@ -576,13 +577,28 @@ document.querySelectorAll('[data-theme-set]').forEach(b => {
 });
 
 /* ================= 탭 ================= */
+let tab = 'home';
+
+/* 화면만 바꾼다 (방문 기록은 건드리지 않음) */
+function showTab(v){
+  tab = (v === 'resume') ? 'resume' : 'home';
+  document.querySelectorAll('.tab').forEach(x =>
+    x.setAttribute('aria-selected', String(x.dataset.tab === tab)));
+  $('#view-home').style.display   = tab === 'home'   ? '' : 'none';
+  $('#view-resume').style.display = tab === 'resume' ? '' : 'none';
+}
+
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected','false'));
-    t.setAttribute('aria-selected','true');
     const v = t.dataset.tab;
-    $('#view-home').style.display    = v === 'home' ? '' : 'none';
-    $('#view-resume').style.display  = v === 'resume' ? '' : 'none';
+    if(v === tab) return;
+    if(current) closeDetail(true);   /* 상세가 열려 있었다면 먼저 닫는다 */
+    showTab(v);
+    /* 이력 탭은 방문 기록에 한 칸 쌓아 뒤로가기로 홈에 돌아오게 한다 */
+    const hash = v === 'resume' ? '#resume' : '';
+    if(v === 'resume') history.pushState({ tab:'resume' }, '', hash);
+    else if(history.state && history.state.tab === 'resume') history.back();
+    else history.pushState({ tab:'home' }, '', location.pathname + location.search);
   });
 });
 
@@ -672,12 +688,27 @@ function openDetail(key){
   detail.scrollTop = 0;
   document.body.style.overflow = 'hidden';
   requestAnimationFrame(updateSteps);
+
+  /* 브라우저 방문 기록에 한 칸 추가해 뒤로가기로 목록에 돌아올 수 있게 한다.
+     주소에 #1 형태가 붙으므로 링크를 공유하면 그 프로젝트가 바로 열린다. */
+  showTab('home');
+  const hash = '#' + (DATA.indexOf(p) + 1);
+  if(location.hash !== hash){
+    history.pushState({ project: DATA.indexOf(p) }, '', hash);
+  }
 }
 
-function closeDetail(){
+function closeDetail(fromHistory){
   detail.classList.remove('open');
   document.body.style.overflow = '';
   current = null;
+
+  /* '목록으로' 버튼이나 ESC 로 닫은 경우에는 방문 기록도 함께 되감는다.
+     뒤로가기로 닫힌 경우(fromHistory)는 이미 되감긴 상태라 건드리지 않는다. */
+  if(!fromHistory){
+    if(history.state && history.state.project !== undefined) history.back();
+    else if(location.hash) history.replaceState(null, '', location.pathname + location.search);
+  }
 }
 
 function updateSteps(){
@@ -706,6 +737,33 @@ document.addEventListener('click', e => {
   if(card) openDetail(card.dataset.i !== undefined ? card.dataset.i : card.dataset.id);
 });
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && current) closeDetail(); });
+
+/* 뒤로가기·앞으로가기 대응 */
+window.addEventListener('popstate', () => { syncWithHash(true); });
+
+/* 주소에 맞춰 화면을 맞춘다
+     #3       → 세 번째 프로젝트 상세
+     #resume  → 이력 탭
+     (없음)    → 홈 탭 목록                      */
+function syncWithHash(fromHistory){
+  const raw = (location.hash || '').replace('#', '');
+
+  if(raw === 'resume'){
+    if(current) closeDetail(true);
+    showTab('resume');
+    return;
+  }
+
+  const n = Number(raw);
+  if(n >= 1 && DATA[n - 1]){
+    showTab('home');
+    if(!current || DATA.indexOf(current) !== n - 1) openDetail(n - 1);
+    return;
+  }
+
+  if(current) closeDetail(fromHistory);
+  showTab('home');
+}
 </script>
 </body>
 </html>
