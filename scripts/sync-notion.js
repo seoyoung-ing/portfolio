@@ -160,10 +160,26 @@ async function saveImage(url, hint) {
 }
 
 /* ---------- 본문 해석 ---------- */
+/* 단계 이름 줄인지 판별한다.
+
+   본문 제목에 '가설'이나 '결과' 같은 단어가 들어가는 경우가 많으므로,
+   단어가 들어 있다는 것만으로는 단계로 보지 않는다.
+   이모지와 기호를 걷어낸 뒤 짧은 줄일 때만 단계 이름으로 인정한다.
+   ("🏢 Business Context" → 인정 / "두 가지 가설을 실험으로 검증했다" → 본문 제목)   */
+const STAGE_NAME_MAX = 20;
+
+function cleanForStage(title) {
+  return String(title)
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '')
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .toLowerCase();
+}
+
 function stageOf(title) {
-  const t = title.toLowerCase();
+  const cleaned = cleanForStage(title);
+  if (!cleaned || cleaned.length > STAGE_NAME_MAX) return null;
   for (const s of STAGES) {
-    if (s.match.some(m => t.includes(m))) return s;
+    if (s.match.some(m => cleaned.includes(cleanForStage(m)))) return s;
   }
   return null;
 }
@@ -205,133 +221,156 @@ async function parsePage(page, pageBlocks, order) {
     chapters: []
   };
 
-  let current = null;
-  let pendingHeading = null;   // 단계 이름 줄 다음에 오는 한 문장 제목
-  let sub = null;
+  let current = null;         // 현재 단계
+  let pendingHeading = null;  // 단계 이름 다음에 올 한 문장 제목
+  let sub = null;             // 현재 소단락
   let seenFirstHeading = false;
-
-  const push = (target, item) => {
-    if (sub) sub.blocks.push(item);
-    else if (current) current.blocks.push(item);
-    else target.push(item);
-  };
-
   const intro = [];
 
-  for (const b of pageBlocks) {
-    const type = b.type;
+  const push = item => {
+    if (sub) sub.blocks.push(item);
+    else if (current) current.blocks.push(item);
+    else intro.push(item);
+  };
 
-    /* --- 제목 --- */
-    if (type === 'heading_1' || type === 'heading_2') {
-      const text = plain(b[type].rich_text).trim();
-      if (!text) continue;
+  const openSub = title => {
+    sub = { h: title, blocks: [] };
+    if (current) current.blocks.push({ t: 'sub', sub });
+    return sub;
+  };
 
-      /* 문서 맨 앞 첫 제목은 프로젝트 제목 */
-      if (!seenFirstHeading) {
-        seenFirstHeading = true;
-        if (!project.title) project.title = text;
-        continue;
-      }
+  /* 블록 목록을 순회한다. 토글·단 나누기 등 하위 블록도 함께 본다. */
+  async function walk(list) {
+    for (const b of (list || [])) {
+      const type = b.type;
+      const kids = b._children;
 
-      const stage = stageOf(text);
-      if (stage) {
-        current = { n: '', label: stage.label, h: '', blocks: [] };
-        project.chapters.push(current);
-        pendingHeading = current;
-        sub = null;
-        continue;
-      }
-      /* 단계 이름 바로 뒤의 제목 = 그 단계의 한 문장 제목 */
-      if (pendingHeading && !pendingHeading.h) {
-        pendingHeading.h = text;
-        pendingHeading = null;
-        continue;
-      }
-      /* 그 외의 h2 = 소단락으로 취급 */
-      if (current) {
-        sub = { h: text, blocks: [] };
-        current.blocks.push({ t: 'sub', sub });
-        continue;
-      }
-      continue;
-    }
+      /* --- 제목 --- */
+      if (type === 'heading_1' || type === 'heading_2' || type === 'heading_3') {
+        const text = plain(b[type].rich_text).trim();
 
-    if (type === 'heading_3') {
-      const text = plain(b.heading_3.rich_text).trim();
-      if (!text) continue;
-      if (current) {
-        sub = { h: text, blocks: [] };
-        current.blocks.push({ t: 'sub', sub });
-      }
-      continue;
-    }
+        if (text) {
+          const stage = (type !== 'heading_3') ? stageOf(text) : null;
 
-    /* --- 문단 --- */
-    if (type === 'paragraph') {
-      const raw = plain(b.paragraph.rich_text).trim();
-      if (!raw) continue;
+          /* 본문 첫 제목이 단계 이름이 아니라면 프로젝트 제목으로 본다.
+             (문서가 곧바로 Business Context 로 시작하는 경우도 있으므로
+              단계 이름일 때는 제목으로 가져가지 않는다) */
+          if (!seenFirstHeading && type !== 'heading_3' && !stage) {
+            seenFirstHeading = true;
+            if (!project.title) project.title = text;
+            if (kids) await walk(kids);
+            continue;
+          }
+          if (!seenFirstHeading && stage) seenFirstHeading = true;
 
-      /* 상단 메타 영역 */
-      if (!current) {
-        const meta = metaLine(raw);
-        if (meta) {
-          if (meta.key === '기간' && !project.period) project.period = meta.value;
-          else if (meta.key === '역할' || meta.key === '담당범위') project.role = meta.value;
-          else if (meta.key === '협업' || meta.key === '팀') project.team = meta.value;
-          else if (meta.key === '태그') project.tags = parseTags(meta.value);
-          continue;
+          /* 단계 이름 바로 뒤에 오는 제목은 그 단계의 제목으로 본다.
+             단계 이름처럼 짧지 않은 이상 새 단계로 열지 않는다. */
+          if (pendingHeading && !pendingHeading.h && type !== 'heading_3' && !stage) {
+            pendingHeading.h = text;
+            pendingHeading = null;
+            if (kids) await walk(kids);
+            continue;
+          }
+
+          if (stage) {
+            current = { n: '', label: stage.label, h: '', blocks: [] };
+            project.chapters.push(current);
+            pendingHeading = current;
+            sub = null;
+            if (kids) await walk(kids);
+            continue;
+          }
+
+          if (current) openSub(text);
         }
-        intro.push({ t: 'p', v: rich(b.paragraph.rich_text) });
+        if (kids) await walk(kids);
         continue;
       }
-      const tagLine = raw.match(/^\s*태그\s*[:：]\s*(.+)$/);
-      if (tagLine) { project.tags = parseTags(tagLine[1]); continue; }
 
-      push(intro, { t: 'p', v: rich(b.paragraph.rich_text) });
-      continue;
-    }
-
-    /* --- 인용 --- */
-    if (type === 'quote') {
-      const v = rich(b.quote.rich_text);
-      if (v) push(intro, { t: 'quote', v });
-      continue;
-    }
-
-    /* --- 콜아웃은 인용처럼 --- */
-    if (type === 'callout') {
-      const v = rich(b.callout.rich_text);
-      if (v) push(intro, { t: 'quote', v });
-      continue;
-    }
-
-    /* --- 목록 --- */
-    if (type === 'bulleted_list_item' || type === 'numbered_list_item') {
-      const v = rich(b[type].rich_text);
-      if (v) push(intro, { t: 'li', v });
-      continue;
-    }
-
-    /* --- 이미지 --- */
-    if (type === 'image') {
-      const src = b.image.type === 'external' ? b.image.external.url : b.image.file.url;
-      const caption = plain(b.image.caption).trim();
-      const saved = await saveImage(src, project.title || 'image');
-      if (saved) {
-        if (!project.thumb) project.thumb = saved;
-        push(intro, { t: 'img', v: saved, cap: caption });
+      /* --- 토글: 제목을 소단락으로 삼고 안쪽을 펼친다 --- */
+      if (type === 'toggle') {
+        const text = plain(b.toggle.rich_text).trim();
+        if (text && current) openSub(text);
+        else if (text) push({ t: 'p', v: rich(b.toggle.rich_text) });
+        if (kids) await walk(kids);
+        continue;
       }
-      continue;
-    }
 
-    /* --- 구분선, 나머지는 무시 --- */
+      /* --- 단 나누기·동기화 블록 등은 껍데기만 벗기고 통과 --- */
+      if (type === 'column_list' || type === 'column' ||
+          type === 'synced_block' || type === 'template') {
+        if (kids) await walk(kids);
+        continue;
+      }
+
+      /* --- 문단 --- */
+      if (type === 'paragraph') {
+        const raw = plain(b.paragraph.rich_text).trim();
+        if (raw) {
+          if (!current) {
+            const meta = metaLine(raw);
+            if (meta) {
+              if (meta.key === '기간' && !project.period) project.period = meta.value;
+              else if (meta.key === '역할' || meta.key === '담당범위') project.role = meta.value;
+              else if (meta.key === '협업' || meta.key === '팀') project.team = meta.value;
+              else if (meta.key === '태그') project.tags = parseTags(meta.value);
+              if (kids) await walk(kids);
+              continue;
+            }
+          }
+          const tagLine = raw.match(/^\s*태그\s*[:：]\s*(.+)$/);
+          if (tagLine) { project.tags = parseTags(tagLine[1]); if (kids) await walk(kids); continue; }
+
+          push({ t: 'p', v: rich(b.paragraph.rich_text) });
+        }
+        if (kids) await walk(kids);
+        continue;
+      }
+
+      /* --- 인용 · 콜아웃 --- */
+      if (type === 'quote' || type === 'callout') {
+        const v = rich(b[type].rich_text);
+        if (v) push({ t: 'quote', v });
+        if (kids) await walk(kids);
+        continue;
+      }
+
+      /* --- 목록 --- */
+      if (type === 'bulleted_list_item' || type === 'numbered_list_item' ||
+          type === 'to_do') {
+        const v = rich(b[type].rich_text);
+        if (v) push({ t: 'li', v });
+        if (kids) await walk(kids);
+        continue;
+      }
+
+      /* --- 이미지 --- */
+      if (type === 'image') {
+        const src = b.image.type === 'external' ? b.image.external.url : b.image.file.url;
+        const caption = plain(b.image.caption).trim();
+        const saved = await saveImage(src, project.title || 'image');
+        if (saved) {
+          if (!project.thumb) project.thumb = saved;
+          push({ t: 'img', v: saved, cap: caption });
+        }
+        continue;
+      }
+
+      /* --- 코드·인용문 등 나머지 텍스트 블록 --- */
+      if (b[type] && b[type].rich_text) {
+        const v = rich(b[type].rich_text);
+        if (v) push({ t: 'p', v });
+      }
+      if (kids) await walk(kids);
+    }
   }
 
-  /* 단계 번호 매기기 + 빈 단계 제거 */
+  await walk(pageBlocks);
+
+  /* 내용이 없는 단계는 버린다 */
   project.chapters = project.chapters.filter(c => c.blocks.length || c.h);
   project.chapters.forEach((c, i) => { c.n = String(i + 1).padStart(2, '0'); });
 
-  /* 카드/요약용 값 */
   project.intro = intro;
   const firstQuote = findFirstQuote(project.chapters);
   project.summary = firstQuote || stripTags(firstParagraph(project.chapters) || '');
@@ -341,6 +380,11 @@ async function parsePage(page, pageBlocks, order) {
   project.thumbTitle = splitTitle(project.title);
   project.tone = TONES[order % TONES.length];
   project.pat  = PATS[order % PATS.length];
+
+  /* 본문이 거의 비었으면 로그로 알린다 */
+  let blockCount = 0;
+  walkBlocks(project.chapters, () => blockCount++);
+  project._empty = blockCount === 0;
 
   return project;
 }
@@ -414,6 +458,8 @@ function splitTitle(title) {
       const project = await parsePage(row, blocks, i);
       if (!project.title) { console.warn('  제목이 없어 건너뜁니다.'); continue; }
       if (!project.chapters.length) console.warn('  본문 단계를 찾지 못했습니다. 제목 규칙을 확인하세요.');
+      else if (project._empty) console.warn('  단계는 찾았지만 본문 내용이 비어 있습니다. 노션 페이지가 템플릿 상태인지 확인하세요.');
+      delete project._empty;
       projects.push(project);
     } catch (e) {
       console.error('  변환 실패:', e.message);
