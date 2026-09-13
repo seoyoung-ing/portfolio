@@ -170,9 +170,14 @@ function stageOf(title) {
 
 /* 상단 메타 줄: "기간   2026.02 ~ 2026.07" 형태에서 라벨과 값을 분리 */
 function metaLine(text) {
-  const m = text.match(/^\s*(기간|역할|협업|팀|담당\s*범위)\s*[:：]?\s*(.+)$/);
+  const m = text.match(/^\s*(기간|역할|협업|팀|담당\s*범위|태그)\s*[:：]?\s*(.+)$/);
   if (!m) return null;
   return { key: m[1].replace(/\s/g, ''), value: m[2].trim() };
+}
+
+/* "태그: 0→1 기획, 사용자 인터뷰" → ['0→1 기획', '사용자 인터뷰'] */
+function parseTags(value) {
+  return value.split(/[,·/]/).map(t => t.trim()).filter(Boolean).slice(0, 8);
 }
 
 async function parsePage(page, pageBlocks, order) {
@@ -196,6 +201,7 @@ async function parsePage(page, pageBlocks, order) {
     role: pick('역할', 'Role'),
     team: pick('협업', 'Team'),
     thumb: null,
+    tags: [],
     chapters: []
   };
 
@@ -272,11 +278,15 @@ async function parsePage(page, pageBlocks, order) {
           if (meta.key === '기간' && !project.period) project.period = meta.value;
           else if (meta.key === '역할' || meta.key === '담당범위') project.role = meta.value;
           else if (meta.key === '협업' || meta.key === '팀') project.team = meta.value;
+          else if (meta.key === '태그') project.tags = parseTags(meta.value);
           continue;
         }
         intro.push({ t: 'p', v: rich(b.paragraph.rich_text) });
         continue;
       }
+      const tagLine = raw.match(/^\s*태그\s*[:：]\s*(.+)$/);
+      if (tagLine) { project.tags = parseTags(tagLine[1]); continue; }
+
       push(intro, { t: 'p', v: rich(b.paragraph.rich_text) });
       continue;
     }
