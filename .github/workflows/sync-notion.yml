@@ -10,12 +10,19 @@ on:
 permissions:
   contents: write
 
+# 같은 작업이 겹쳐 돌지 않도록 한 번에 하나만 실행합니다
+concurrency:
+  group: notion-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
       - name: 저장소 가져오기
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Node 설치
         uses: actions/setup-node@v4
@@ -45,12 +52,26 @@ jobs:
 
           git commit -m "노션 내용 동기화 $(date +'%Y-%m-%d %H:%M')"
 
-          if ! git push; then
-            echo ""
-            echo "저장소에 쓰지 못했습니다."
-            echo "Settings → Actions → General → Workflow permissions 에서"
-            echo "'Read and write permissions' 를 선택하고 저장한 뒤 다시 실행해 주세요."
-            exit 1
-          fi
+          # 작업이 도는 동안 저장소에 다른 변경이 생겼을 수 있다.
+          # 그런 경우 원격 내용을 먼저 합친 뒤 다시 시도한다.
+          for i in 1 2 3; do
+            if git push; then
+              echo "저장을 마쳤습니다."
+              exit 0
+            fi
 
-          echo "저장을 마쳤습니다."
+            echo "원격에 새 변경이 있어 합친 뒤 다시 시도합니다. ($i/3)"
+            if ! git pull --rebase origin "${GITHUB_REF_NAME}"; then
+              echo ""
+              echo "원격 변경과 자동 생성 파일이 충돌해 합치지 못했습니다."
+              echo "data.json 또는 images 폴더를 직접 수정하셨다면 되돌린 뒤 다시 실행해 주세요."
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "세 번 시도했지만 저장하지 못했습니다."
+          echo "확인할 것 1 — 작업이 도는 동안 저장소를 수정하고 계셨다면, 잠시 뒤 다시 실행해 주세요."
+          echo "확인할 것 2 — Settings → Actions → General → Workflow permissions 가"
+          echo "               'Read and write permissions' 인지 확인해 주세요."
+          exit 1
